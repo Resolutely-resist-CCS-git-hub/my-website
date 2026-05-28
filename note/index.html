@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Notes</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
+
+<style>
+html,body{
+    margin:0;
+    height:100%;
+    overflow:hidden;
+}
+
+#container{
+    display:flex;
+    height:100vh;
+}
+
+#editorWrap{
+    width:100%;
+    transition:0.3s;
+}
+
+#container.md #editorWrap{
+    width:50%;
+}
+
+#preview{
+    width:50%;
+    display:none;
+    padding:20px;
+    overflow:auto;
+    background:#f6f6f6;
+}
+
+#container.md #preview{
+    display:block;
+}
+
+.CodeMirror{
+    height:100vh;
+    font-size:16px;
+}
+
+#top{
+    position:fixed;
+    right:10px;
+    top:10px;
+    z-index:999;
+    background:#333;
+    color:white;
+    padding:6px 10px;
+    border-radius:6px;
+    font-size:12px;
+}
+
+/* 设置面板 */
+#panelBtn{
+    position:fixed;
+    left:12px;
+    bottom:12px;
+    width:38px;
+    height:38px;
+    border-radius:50%;
+    border:none;
+    background:#333;
+    color:white;
+    cursor:pointer;
+    z-index:999;
+}
+
+#panel{
+    position:fixed;
+    left:12px;
+    bottom:60px;
+    background:rgba(30,30,30,0.95);
+    color:white;
+    padding:10px;
+    border-radius:8px;
+    font-size:12px;
+    width:170px;
+    display:none;
+    z-index:999;
+}
+</style>
+</head>
+
+<body>
+
+<div id="top"></div>
+
+<button id="panelBtn">⚙</button>
+
+<div id="panel">
+    字体 <input id="font" value="16"> px<br><br>
+    行高 <input id="lh" value="1.5"><br><br>
+    <button onclick="togglePreview()">预览</button>
+</div>
+
+<div id="container">
+    <div id="editorWrap">
+        <textarea id="editor"></textarea>
+    </div>
+    <div id="preview"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/markdown/markdown.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script>
+/* =========================
+   hash 路由
+========================= */
+
+if(!location.hash){
+    location.hash = "#home";
+}
+
+function getName(){
+    return decodeURIComponent(location.hash.slice(1) || "home");
+}
+
+/* =========================
+   IndexedDB
+========================= */
+
+let db;
+let currentId = "";
+
+function openDB(){
+    return new Promise((resolve)=>{
+        const req = indexedDB.open("NoteDB", 1);
+
+        req.onupgradeneeded = (e)=>{
+            db = e.target.result;
+            db.createObjectStore("notes", { keyPath:"id" });
+        };
+
+        req.onsuccess = (e)=>{
+            db = e.target.result;
+            resolve();
+        };
+    });
+}
+
+function saveNote(id, content){
+    const tx = db.transaction("notes","readwrite");
+    tx.objectStore("notes").put({ id, content });
+}
+
+function loadNote(id){
+    return new Promise((resolve)=>{
+        const tx = db.transaction("notes","readonly");
+        const req = tx.objectStore("notes").get(id);
+
+        req.onsuccess = ()=>{
+            resolve(req.result ? req.result.content : "");
+        };
+    });
+}
+
+/* =========================
+   CodeMirror
+========================= */
+
+let editor = CodeMirror.fromTextArea(
+    document.getElementById("editor"),
+    {
+        lineNumbers:true,
+        mode:"markdown",
+        styleActiveLine:true
+    }
+);
+
+editor.setSize("100%","100%");
+
+/* =========================
+   preview
+========================= */
+
+function updatePreview(){
+    document.getElementById("preview").innerHTML =
+        marked.parse(editor.getValue());
+}
+
+/* =========================
+   加载笔记
+========================= */
+
+async function loadCurrentNote(id){
+
+    currentId = id;
+
+    const content = await loadNote(id);
+
+    editor.setValue(content || "");
+
+    updatePreview();
+
+    document.getElementById("top").innerText = id;
+}
+
+/* =========================
+   初始化
+========================= */
+
+let timer;
+
+(async function init(){
+    await openDB();
+    await loadCurrentNote(getName());
+})();
+
+/* =========================
+   自动保存
+========================= */
+
+editor.on("change",()=>{
+    updatePreview();
+
+    clearTimeout(timer);
+
+    timer = setTimeout(()=>{
+        if(currentId){
+            saveNote(currentId, editor.getValue());
+        }
+    },150);
+});
+
+/* =========================
+   hash 切换
+========================= */
+
+window.addEventListener("hashchange", async ()=>{
+    await loadCurrentNote(getName());
+});
+
+/* =========================
+   设置面板
+========================= */
+
+let panel=document.getElementById("panel");
+let btn=document.getElementById("panelBtn");
+let open=false;
+
+btn.onclick=()=>{
+    open=!open;
+    panel.style.display=open?"block":"none";
+};
+
+document.addEventListener("click",(e)=>{
+    if(!panel.contains(e.target) && e.target!==btn){
+        panel.style.display="none";
+        open=false;
+    }
+});
+
+document.getElementById("font").oninput=(e)=>{
+    document.querySelector(".CodeMirror").style.fontSize=e.target.value+"px";
+};
+
+document.getElementById("lh").oninput=(e)=>{
+    document.querySelector(".CodeMirror").style.lineHeight=e.target.value;
+};
+
+/* =========================
+   markdown toggle
+========================= */
+
+function togglePreview(){
+    document.getElementById("container").classList.toggle("md");
+}
+</script>
+
+</body>
+</html>
